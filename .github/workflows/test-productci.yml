@@ -22,7 +22,7 @@ jobs:
         run: npm ci
 
       - name: Chạy test
-        run: npm test
+        run: npx jest app.test.js --forceExit
 
       - name: Build thử Docker image
         run: docker build -t product-api:ci .
