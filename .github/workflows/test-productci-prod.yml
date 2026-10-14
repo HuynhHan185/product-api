@@ -1,0 +1,99 @@
+name: Test Product CI (Production-like)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test CRUD với MongoDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval \"db.adminCommand('ping')\""
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/productdb_test
+
+    steps:
+      - name: Lấy code về
+        uses: actions/checkout@v4
+
+      - name: Cài Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Cài thư viện
+        run: npm ci
+
+      - name: Chạy test CRUD
+        run: npm test
+
+  docker-smoke-test:
+    name: Smoke test bằng Docker Compose
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 10
+
+    steps:
+      - name: Lấy code về
+        uses: actions/checkout@v4
+
+      - name: Dựng hệ thống bằng Docker Compose
+        run: docker compose up -d --build
+
+      - name: Chờ MongoDB và API healthy
+        run: |
+          for i in $(seq 1 30); do
+            mongo=$(docker inspect --format '{{.State.Health.Status}}' nammongodb)
+            api=$(docker inspect --format '{{.State.Health.Status}}' product-api)
+            echo "mongodb=$mongo api=$api"
+            if [ "$mongo" = "healthy" ] && [ "$api" = "healthy" ]; then
+              curl -fsS http://localhost:3000/health
+              echo ""
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs
+          exit 1
+
+      - name: Smoke test CRUD qua HTTP
+        run: |
+          set -e
+          curl -fsS -X POST http://localhost:3000/api/products \
+            -H "Content-Type: application/json" \
+            -d '{"pid":1,"pname":"Laptop","price":15000000,"quantity":10}'
+          echo ""
+          curl -fsS http://localhost:3000/api/products/1
+          echo ""
+          curl -fsS -X PUT http://localhost:3000/api/products/1 \
+            -H "Content-Type: application/json" \
+            -d '{"price":14000000,"quantity":8}'
+          echo ""
+          curl -fsS -X DELETE http://localhost:3000/api/products/1
+          echo ""
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/products/1)
+          echo "GET sau khi xóa trả mã $code"
+          test "$code" = "404"
+
+      - name: In log nếu lỗi
+        if: failure()
+        run: docker compose logs
+
+      - name: Dọn dẹp
+        if: always()
+        run: docker compose down -v
