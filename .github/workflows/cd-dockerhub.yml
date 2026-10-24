@@ -81,3 +81,41 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/product-api:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/product-api:${{ github.sha }}
+
+  deploy:
+    name: CD - Triển khai về Docker Engine local
+    runs-on: [self-hosted, Windows]
+    needs: push
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 10
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kéo image mới từ Docker Hub
+        run: docker compose -p product-api -f docker-compose-prod.yaml pull api
+
+      - name: Khởi động lại bằng image mới
+        run: docker compose -p product-api -f docker-compose-prod.yaml up -d
+
+      - name: Chờ API healthy
+        run: |
+          $deadline = (Get-Date).AddMinutes(3)
+          do {
+            $api = docker inspect --format '{{.State.Health.Status}}' product-api-prod
+            Write-Host "api=$api"
+            if ($api -eq 'healthy') { exit 0 }
+            Start-Sleep -Seconds 5
+          } while ((Get-Date) -lt $deadline)
+          docker compose -p product-api -f docker-compose-prod.yaml logs
+          exit 1
+
+      - name: Smoke test
+        run: |
+          $r = Invoke-RestMethod http://localhost:3000/health
+          $r | ConvertTo-Json
+          if ($r.status -ne 'ok') { exit 1 }
+
+      - name: Xác nhận image đang chạy
+        run: docker inspect --format "{{.Config.Image}}" product-api-prod
