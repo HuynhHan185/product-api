@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  MONGO_IMAGE: mongo:7.0
+
 jobs:
   test:
     name: Test CRUD với MongoDB
@@ -14,7 +17,7 @@ jobs:
 
     services:
       mongodb:
-        image: mongo:8.0
+        image: mongo:7.0
         ports:
           - 27017:27017
         options: >-

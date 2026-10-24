@@ -1,6 +1,6 @@
 services:
   mongodb:
-    image: mongo
+    image: ${MONGO_IMAGE:-mongo}
     container_name: nammongodb
     ports:
       - "27017:27017"
